@@ -1,0 +1,84 @@
+
+ // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract NFTMarketplace is ERC721, ReentrancyGuard {
+    uint256 public nextTokenId = 1;
+
+    struct Listing {
+        address seller;
+        uint256 price;
+    }
+
+    mapping(uint256 => Listing) public listings;
+
+    event NFTMinted(address indexed owner, uint256 tokenId);
+    event NFTListed(uint256 indexed tokenId, uint256 price);
+    event NFTSold(uint256 indexed tokenId, address buyer, uint256 price);
+    event ListingCancelled(uint256 indexed tokenId);
+
+    constructor() ERC721("Ape Marketplace NFT", "AMNFT") {}
+
+    // Mint NFT
+    function mint() external returns (uint256) {
+        uint256 tokenId = nextTokenId++;
+        _safeMint(msg.sender, tokenId);
+
+        emit NFTMinted(msg.sender, tokenId);
+        return tokenId;
+    }
+
+    // List NFT for sale
+    function listNFT(uint256 tokenId, uint256 price)
+        external
+    {
+        require(ownerOf(tokenId) == msg.sender, "Not NFT owner");
+        require(price > 0, "Price must be greater than zero");
+        require(
+            getApproved(tokenId) == address(this) ||
+            isApprovedForAll(msg.sender, address(this)),
+            "Marketplace not approved"
+        );
+
+        listings[tokenId] = Listing(msg.sender, price);
+
+        emit NFTListed(tokenId, price);
+    }
+
+    // Buy NFT using native APE
+    function buyNFT(uint256 tokenId)
+        external
+        payable
+        nonReentrant
+    {
+        Listing memory item = listings[tokenId];
+
+        require(item.seller != address(0), "Not listed");
+        require(msg.value == item.price, "Incorrect payment");
+        require(ownerOf(tokenId) == item.seller, "Seller no longer owns NFT");
+
+        delete listings[tokenId];
+
+        _safeTransfer(item.seller, msg.sender, tokenId, "");
+
+        (bool success, ) = payable(item.seller).call{value: msg.value}("");
+        require(success, "Payment failed");
+
+        emit NFTSold(tokenId, msg.sender, item.price);
+    }
+
+    // Cancel listing
+    function cancelListing(uint256 tokenId) external {
+        require(
+            listings[tokenId].seller == msg.sender,
+            "Not listing seller"
+        );
+
+        delete listings[tokenId];
+
+        emit ListingCancelled(tokenId);
+    }
+}
